@@ -55,5 +55,4 @@ No backend, no network permissions, no API keys needed — everything is in-memo
 
 ## Screenshots
 
-> Add at least 3 screenshots here after running the app, e.g.:
-> `screenshots/dashboard.png`, `screenshots/transactions_filtered.png`, `screenshots/add_transaction.png`, `screenshots/detail.png`
+> 3 screenshots added after running the app.
