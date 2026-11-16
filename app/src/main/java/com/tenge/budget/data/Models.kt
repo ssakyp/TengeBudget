@@ -1,53 +1,39 @@
 package com.tenge.budget.data
 
-import java.time.LocalDate
-import java.util.UUID
+import com.tenge.budget.data.local.Budget
 
-/** Whether an entry adds money to the balance or takes money away from it. */
-enum class TxType { INCOME, EXPENSE }
-
-/**
- * A fixed category list keeps the app focused on budgeting itself rather
- * than on category CRUD. Each one knows which [TxType] it usually belongs
- * to, so the "Add" screen can default sensibly when a category is tapped.
- */
-enum class Category(val label: String, val defaultType: TxType) {
-    SALARY("Salary", TxType.INCOME),
-    FREELANCE("Freelance", TxType.INCOME),
-    FOOD("Food", TxType.EXPENSE),
-    TRANSPORT("Transport", TxType.EXPENSE),
-    SHOPPING("Shopping", TxType.EXPENSE),
-    BILLS("Bills", TxType.EXPENSE),
-    ENTERTAINMENT("Entertainment", TxType.EXPENSE),
-    OTHER("Other", TxType.EXPENSE)
+/** INCOME adds to an account, EXPENSE subtracts from it, TRANSFER moves money between two accounts. */
+enum class TxType(val label: String) {
+    INCOME("Income"),
+    EXPENSE("Expense"),
+    TRANSFER("Transfer")
 }
 
-/** One logged transaction. Plain Kotlin data class — no Android/Compose dependency here on purpose. */
-data class Transaction(
-    val id: String = UUID.randomUUID().toString(),
-    val title: String,
-    val amount: Double,
-    val type: TxType,
-    val category: Category,
-    val date: LocalDate = LocalDate.now(),
-    val note: String = ""
-)
+/** Currency that totals, summaries and budgets are calculated in. Other-currency accounts are shown but not summed. */
+const val BASE_CURRENCY = "KZT"
 
-/** Totals derived from the current transaction list — recomputed, never stored. */
-data class Summary(val income: Double, val expense: Double) {
-    val balance: Double get() = income - expense
+/** Income / expenses for one month (base currency only). */
+data class PeriodSummary(val income: Double = 0.0, val expenses: Double = 0.0) {
+    val net: Double get() = income - expenses
 }
 
-/** A couple of weeks of starter data so every screen has something to show on first launch. */
-fun sampleTransactions(): List<Transaction> {
-    val today = LocalDate.now()
-    return listOf(
-        Transaction(title = "October salary", amount = 350_000.0, type = TxType.INCOME, category = Category.SALARY, date = today.minusDays(12)),
-        Transaction(title = "Grocery run", amount = 18_500.0, type = TxType.EXPENSE, category = Category.FOOD, date = today.minusDays(10)),
-        Transaction(title = "Taxi to campus", amount = 2_200.0, type = TxType.EXPENSE, category = Category.TRANSPORT, date = today.minusDays(9)),
-        Transaction(title = "Logo design gig", amount = 60_000.0, type = TxType.INCOME, category = Category.FREELANCE, date = today.minusDays(7)),
-        Transaction(title = "Phone bill", amount = 4_500.0, type = TxType.EXPENSE, category = Category.BILLS, date = today.minusDays(5)),
-        Transaction(title = "New headphones", amount = 22_000.0, type = TxType.EXPENSE, category = Category.SHOPPING, date = today.minusDays(3)),
-        Transaction(title = "Movie night", amount = 6_000.0, type = TxType.EXPENSE, category = Category.ENTERTAINMENT, date = today.minusDays(1))
-    )
+/** A monthly category budget together with how much has been spent against it. */
+data class BudgetStatus(val budget: Budget, val categoryName: String, val spent: Double) {
+    val remaining: Double get() = budget.limitAmount - spent
+    val exceeded: Boolean get() = spent > budget.limitAmount
+    val fraction: Float
+        get() = if (budget.limitAmount <= 0.0) 0f else (spent / budget.limitAmount).toFloat().coerceIn(0f, 1f)
+}
+
+/** Lifecycle of a savings goal. See [com.tenge.budget.data.repository.GoalRepository] for the transition rules. */
+enum class GoalStatus(val label: String) {
+    ACTIVE("Active"),
+    PAUSED("Paused"),
+    COMPLETED("Completed")
+}
+
+/** A contribution either moves money into a goal or takes it back out. */
+enum class ContributionKind(val label: String) {
+    DEPOSIT("Deposit"),
+    WITHDRAWAL("Withdrawal")
 }
