@@ -1,58 +1,67 @@
 # Tenge Budget
 
-A personal budget tracker for Android, built for the **Midterm Project**. It continues the Tenge Tracker line (HW1/HW2 → Task 2) with a multi-screen Jetpack Compose app: log income and expenses, search and filter them, track a monthly spending goal, and drill into any transaction's full detail.
+Android (Jetpack Compose) port of the *Tenge Tracker* web/API project: **accounts, categories, monthly budgets and income / expense / transfer transactions**, plus savings goals — all stored locally with Room. Task 3: MVVM + Room + an advanced feature.
+
+## Data model (mirrors the web API)
+
+```
+Account 1──N Transaction N──1 Category 1──N Budget          SavingsGoal 1──N Contribution
+              └─ target account (transfers)
+```
+
+| Entity | Fields | Rules |
+|---|---|---|
+| `Account` | name, balance, currency (3 letters) | Opening balance set on creation; afterwards only transactions change it. Can't be deleted while it has transactions. Currency locked once used. |
+| `Category` | name, type (INCOME / EXPENSE) | User-managed (15 defaults seeded). Can't be deleted or change type while used by a transaction or budget. |
+| `Transaction` | account, optional category, optional target account, title, amount, type, date, note | Always belongs to an account. Category type must match the transaction type. |
+| `Budget` | category, month, year, limit | EXPENSE categories only; one per category per month. |
+| `SavingsGoal` / `Contribution` | name, target, status / deposit-withdrawal history | See below. |
 
 ## Features
 
-1. **Add transactions** — title, amount, type (Income/Expense), category, and an optional note, with inline validation.
-2. **Search & filter** — a search field plus type chips (All/Income/Expense) and a scrollable row of category chips on the Transactions screen; all three combine.
-3. **Monthly budget goal** — the Dashboard shows a progress bar for this month's spending against a fixed budget, switching to a warning color once you go over — the feature that gives the app a purpose beyond plain CRUD.
-4. **Transaction detail + delete** — tapping any row (on the Dashboard's recent list or the full Transactions list) opens a detail screen with every field, reached by passing the transaction's id through Navigation Compose; delete asks for confirmation first.
+- **Accounts** — list with total per currency, detail screen with the account's full history (as source *or* transfer destination), create / edit / delete (confirmation; refused with an explanation if it has transactions).
+- **Transactions** — INCOME, EXPENSE and **TRANSFER** between two accounts. Create / edit / delete (confirmation + **Undo**), date picker, validated form. Search plus filters by type, account and category.
+- **Balances stay correct** — every add / edit / delete is applied in a single Room transaction: income adds, expense subtracts, transfer moves money; editing or deleting first reverses the old effect. A change that would make any balance negative ("Not enough balance in …") is rejected and **rolled back entirely**. Transfers between different currencies are refused.
+- **Categories** — manage income / expense categories (dialog create / edit, confirm delete).
+- **Budgets** — pick a month, set a limit per expense category, see live *spent / remaining / over by* progress computed from that month's transactions.
+- **Dashboard** — month selector with income, expenses and net; total assets; budget roll-up with "exceeded" count; goals summary; recent activity.
+- **Savings goals** (extra) — targets with deposits / withdrawals, history, statistics and a status workflow `ACTIVE ⇄ PAUSED`, `ACTIVE → COMPLETED` (reopens on withdrawal or higher target).
 
-## Screens & navigation
+Amounts, summaries and budgets are in KZT; accounts in other currencies are shown in their own currency but not added into KZT totals.
 
-A bottom navigation bar switches between the three main destinations; the detail screen is reached only by tapping a transaction and is not part of the bottom bar.
+## Task 3 requirements → where
 
-```
-Dashboard  ──tap "See all"──▶ Transactions
-    │                              │
-    └──────tap a row───────────────┴──▶ Transaction Detail ──▶ back
-Add  (bottom bar) ──submit──▶ Transactions
-```
-
-- **Dashboard** (`dashboard`) — totals, budget progress, recent activity.
-- **Transactions** (`transactions`) — full list with search/filter.
-- **Add** (`add`) — the entry form.
-- **Transaction Detail** (`detail/{id}`) — every field of one transaction, with delete.
+| Requirement | Implementation |
+|---|---|
+| `LazyColumn` with stable keys | Every list uses `key = { id }` |
+| List + detail with Navigation Compose | Transactions, Accounts, Goals (+ Categories, Budgets); `Long` id arguments |
+| Create / edit forms with validation | Transaction, account, goal forms; category and budget dialogs |
+| Delete with confirmation | `ConfirmDeleteDialog` for transactions, accounts, categories, budgets, goals |
+| Advanced feature | Multi-account balance management (income / expense / transfer with reversal and rollback), monthly budgets with live status, savings-goal workflow |
+| Empty states + feedback | Every list has an empty state; app-wide snackbar ("Transaction added", "Not enough balance…", "Deleted … Undo") |
+| `ViewModel` + `StateFlow`, `collectAsStateWithLifecycle()` | 12 ViewModels in `viewmodel/` |
+| Layering | `ui` → `viewmodel` → `data/repository` → `data/local` (Room) |
+| State hoisting / reusable composables | `ui/components/` (rows, cards, chips, dialogs, month selector…) |
+| Actions through ViewModel methods | Composables only call ViewModel functions |
+| Room: Entities + DAOs, CRUD, Repository, Flow | 6 entities, 5 DAOs, 6 repositories; DAOs return `Flow` |
+| Persistence | Data survives restarts; categories and two demo accounts are seeded on first launch |
+| Cross-screen consistency | Shared Activity-scoped ViewModels + Room flows — no manual refresh |
+| Config changes | Form drafts and dialog state live in ViewModels |
 
 ## Architecture
 
-- `data/Models.kt` — plain Kotlin (`Transaction`, `Category`, `TxType`, `Summary`); no Android dependency.
-- `BudgetViewModel.kt` — the single source of truth, created once where `AppNavHost` is hosted and handed down to every screen (state hoisting at the navigation-graph level). All derived data (recent list, filtered list, totals) is built with `combine`/`map`/`stateIn` over the underlying list, not stored separately.
-- `ui/navigation/AppNavHost.kt` — the `NavHost` + bottom navigation bar.
-- `ui/screens/` — one file per screen (`DashboardScreen`, `TransactionsScreen`, `AddTransactionScreen`, `TransactionDetailScreen`); each one only reads from/calls the shared ViewModel and holds no business logic of its own.
-- `ui/components/Components.kt` — 4 reusable, stateless composables: `SummaryCard`, `SelectableChip`, `TransactionRow`, `BudgetProgressBar`.
+```
+ui/              Composables (screens, components, navigation, theme)
+viewmodel/       StateFlow UI state, validation, user-action methods
+data/repository/ Business rules (balance effects, uniqueness, in-use checks)
+data/local/      Room: AppDatabase, entities, DAOs, converters
+di/              AppContainer (hand-rolled DI created in TengeApp)
+```
 
-### `remember` vs `rememberSaveable` vs `ViewModel`, in this app
+## Running
 
-| Tool | Used for | Why |
-|---|---|---|
-| `remember` | The Add screen's validation error message; the delete-confirmation dialog's visibility on the Detail screen | Purely transient UI state |
-| `rememberSaveable` | The Add screen's draft fields (title, amount, note, type, category) | Should survive rotation before submission, but has no reason to live in the ViewModel once added |
-| `ViewModel` (`StateFlow`) | The transaction list, search text, type/category filters, the monthly budget | The actual application data — must survive both rotation **and** navigating between screens, since every screen shares the same instance |
-
-### Configuration changes
-
-`BudgetViewModel` is obtained with the default `viewModel()` factory where `AppNavHost` is hosted, so it's scoped to the Activity and outlives Activity recreation (rotation). The `NavController`'s back stack is similarly preserved by `rememberNavController()` across recomposition. In practice: rotate the device on any screen — the current route, the transaction list, filters, and any in-progress Add-form draft are all exactly as you left them.
-
-## Running the project
-
-1. Open the project folder in Android Studio (Koala or newer).
-2. Let Gradle sync (needs network access to `google()` and `mavenCentral()`).
-3. Run the `app` configuration on an emulator or device with API 26+.
-
-No backend, no network permissions, no API keys needed — everything is in-memory for this assignment ("may be extended with databases, networking... during the second half of the semester").
+Open in Android Studio, sync Gradle (Room via KSP), run `app` on API 26+. The database version is 2: if you installed an earlier build, the old database is rebuilt automatically (or clear the app's data).
 
 ## Screenshots
 
-> 3 screenshots added after running the app.
+> Add 3+ screenshots to `screenshots/` after running the app.
